@@ -10,9 +10,11 @@ import java.util.List;
 import java.util.Map;
 
 import io.innerloop.neo4j.client.Connection;
+import io.innerloop.neo4j.client.GraphStatement;
 import io.innerloop.neo4j.client.Neo4jClient;
 import io.innerloop.neo4j.client.Node;
 import io.innerloop.neo4j.client.Relationship;
+import io.innerloop.neo4j.client.Statement;
 
 /**
  * Hello world!
@@ -41,10 +43,10 @@ public class App {
 		BufferedReader reader = new BufferedReader(new FileReader(file2));
 		Connection connection = client.getConnection();
 
-		long relIDCounter = 1;
-		long nodeIdCounter = 1;
+		long relIDCounter = 0;
+		long nodeIdCounter = 0;
 
-		for (int i = 0; i < 100; i++) {
+		while (true) {
 
 			String line = reader.readLine();
 			if (line == null) {
@@ -62,49 +64,31 @@ public class App {
 			boolean nodeKnown = nodes.containsKey(fieldID);
 			boolean parentKnown = nodes.containsKey(parentFieldID);
 
+			Node node;
+			Node parent;
 			if (nodeKnown) {
-				if (parentKnown) {
-					Node node = nodes.get(fieldID);
-					Node parent = nodes.get(parentFieldID);
-
-					// create new relationship
-					relIDCounter++;
-					createRelationship(relIDCounter, certainty, node, parent);
-				} else {
-					Node node = nodes.get(fieldID);
-
-					// create new parent node
-					nodeIdCounter++;
-					Node parent = addNewNode(nodeIdCounter, nodelvl, parentFieldID);
-
-					relIDCounter++;
-					createRelationship(relIDCounter, certainty, node, parent);
-				}
+				node = nodes.get(fieldID);
 			} else {
-				if (parentKnown) {
-					nodeIdCounter++;
-					Node node = addNewNode(nodeIdCounter, nodelvl, parentFieldID);
-
-					Node parent = nodes.get(parentFieldID);
-
-					// create new relationship
-					relIDCounter++;
-					createRelationship(relIDCounter, certainty, node, parent);
-				} else {
-					nodeIdCounter++;
-					Node parent = addNewNode(nodeIdCounter, parentlvl, parentFieldID);
-
-					nodeIdCounter++;
-					Node node = addNewNode(nodeIdCounter, nodelvl, fieldID);
-
-					// create new relationship
-					relIDCounter++;
-					createRelationship(relIDCounter, certainty, node, parent);
-				}
+				nodeIdCounter++;
+				node = addNewNode(nodeIdCounter, nodelvl, fieldID);
 			}
+			if (parentKnown) {
+				parent = nodes.get(parentFieldID);
+			} else {
+				// create new parent node
+				nodeIdCounter++;
+				parent = addNewNode(nodeIdCounter, parentlvl, parentFieldID);
+			}
+			// create realationship
+			relIDCounter++;
+			createRelationship(relIDCounter, certainty, node, parent);
 		}
 		System.out.println("");
-		
+
+		nodes.forEach((key, node) -> {
+			GraphStatement g = new GraphStatement("CREATE (a:FielOfStudy {0})");
+		});
+
 	}
 
 	private Node addNewNode(long nodeIdCounter, String nodelvl, String fieldID) {
