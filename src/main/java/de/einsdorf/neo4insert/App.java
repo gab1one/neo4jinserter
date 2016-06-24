@@ -1,20 +1,14 @@
 package de.einsdorf.neo4insert;
 
 import java.io.BufferedReader;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import io.innerloop.neo4j.client.Connection;
-import io.innerloop.neo4j.client.GraphStatement;
-import io.innerloop.neo4j.client.Neo4jClient;
-import io.innerloop.neo4j.client.Node;
-import io.innerloop.neo4j.client.Relationship;
-import io.innerloop.neo4j.client.Statement;
+import org.neo4j.driver.v1.*;
+import org.neo4j.driver.v1.summary.ResultSummary;
 
 /**
  * Hello world!
@@ -24,85 +18,98 @@ public class App {
 	private static final String FILE = "/home/gabriel/Documents/Data/HYPE/FieldOfStudyHierarchy.txt";
 	private static final String[] NODE_TYPE = new String[] { "FieldOfStudy" };
 	private static final String SUB_FIELD = "subfield";
-	private Neo4jClient client;
-	private Map<String, Node> nodes = new HashMap<>();
-	private List<Relationship> relationships = new ArrayList<>();
+
+	private Map<String, ReadNode> nodes = new HashMap<>();
+	private List<ReadRelationship> relationships = new ArrayList<>();
+	private Driver driver;
 
 	public App() {
-		client = new Neo4jClient("http://localhost:7474/db/data", "neo4j", "password");
+		driver = GraphDatabase.driver("bolt://localhost", AuthTokens.basic("neo4j", "password"),
+				Config.build().withEncryptionLevel(Config.EncryptionLevel.NONE).toConfig());
+
 	}
 
 	public static void main(String[] args) throws IOException {
 		App app = new App();
 
-		app.insert(FILE);
+		app.readDate(FILE);
+		app.insertNodes();
+		app.insertConnections();
 
 	}
 
-	private void insert(String file2) throws IOException {
-		BufferedReader reader = new BufferedReader(new FileReader(file2));
-		Connection connection = client.getConnection();
+	private void insertConnections() {
+		// TODO Auto-generated method stub
+		
+	}
 
-		long relIDCounter = 0;
-		long nodeIdCounter = 0;
+	private void readDate(String file) throws IOException {
+		try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+			while (true) {
+				String line = reader.readLine();
+				if (line == null) {
+					break;
+				}
+				String[] elements = line.split("\t");
+				String fieldID = elements[0];
+				String nodelvl = elements[1];
 
-		while (true) {
+				String parentFieldID = elements[2];
+				String parentlvl = elements[3];
 
-			String line = reader.readLine();
-			if (line == null) {
-				break;
+				double certainty = Double.parseDouble(elements[4]);
+
+				boolean nodeKnown = nodes.containsKey(fieldID);
+				boolean parentKnown = nodes.containsKey(parentFieldID);
+
+				ReadNode node;
+				ReadNode parent;
+				if (nodeKnown) {
+					node = nodes.get(fieldID);
+				} else {
+					node = addNewNode(nodelvl, fieldID);
+				}
+				if (parentKnown) {
+					parent = nodes.get(parentFieldID);
+				} else {
+					// create new parent node
+					parent = addNewNode(parentlvl, parentFieldID);
+				}
+				// create realationship
+				createRelationship(node, parent, certainty);
 			}
-			String[] elements = line.split("\t");
-			String fieldID = elements[0];
-			String nodelvl = elements[1];
-
-			String parentFieldID = elements[2];
-			String parentlvl = elements[3];
-
-			double certainty = Double.parseDouble(elements[4]);
-
-			boolean nodeKnown = nodes.containsKey(fieldID);
-			boolean parentKnown = nodes.containsKey(parentFieldID);
-
-			Node node;
-			Node parent;
-			if (nodeKnown) {
-				node = nodes.get(fieldID);
-			} else {
-				nodeIdCounter++;
-				node = addNewNode(nodeIdCounter, nodelvl, fieldID);
-			}
-			if (parentKnown) {
-				parent = nodes.get(parentFieldID);
-			} else {
-				// create new parent node
-				nodeIdCounter++;
-				parent = addNewNode(nodeIdCounter, parentlvl, parentFieldID);
-			}
-			// create realationship
-			relIDCounter++;
-			createRelationship(relIDCounter, certainty, node, parent);
 		}
-		System.out.println("");
+	}
 
+	public void insertNodes() {
+
+		Session session = driver.session();
+
+		// Delete all current nodes!
+		session.run("MATCH (n) OPTIONAL MATCH (n)-[r]-() DELETE n,r");
+
+		// TODO Also insert human readable name
+		String insertionTemplate = "CREATE (node :FieldOfStudy {fieldID: {fieldID}, level:{nodelvl}})";
+
+		// insert all nodes
 		nodes.forEach((key, node) -> {
-			GraphStatement g = new GraphStatement("CREATE (a:FielOfStudy {0})");
+			session.run(insertionTemplate, Values.parameters("fieldID", key, "nodelvl", node.getNodelvl())).consume();
 		});
 
+		// create index
+		String indexTemplate = "CREATE INDEX ON :FieldOfStudy(fieldID)";
+		session.run(indexTemplate);
+		session.close();
+
 	}
 
-	private Node addNewNode(long nodeIdCounter, String nodelvl, String fieldID) {
-		Map<String, Object> nodeProps = new HashMap<>();
-		nodeProps.put("Level", nodelvl);
-		nodeProps.put("FieldID", fieldID);
-		Node parent = new Node(nodeIdCounter, NODE_TYPE, nodeProps);
-		nodes.put(fieldID, parent);
-		return parent;
+	private ReadNode addNewNode(String nodelvl, String fieldID) {
+		ReadNode node = new ReadNode(nodelvl, fieldID);
+		nodes.put(fieldID, node);
+		return node;
 	}
 
-	private void createRelationship(long relID, double certainty, Node node, Node parent) {
-		Map<String, Object> relprops = new HashMap<>();
-		relprops.put("certainty", certainty);
-		relationships.add(new Relationship(relID, SUB_FIELD, node.getId(), parent.getId(), relprops));
+	private void createRelationship(ReadNode node, ReadNode parent, double certainty) {
+		relationships.add(new ReadRelationship(node, parent, certainty));
 	}
 }
